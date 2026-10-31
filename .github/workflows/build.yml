@@ -67,3 +67,65 @@ jobs:
       with:
         name: ${{ matrix.configuration }} ${{ env.describe }}
         path: Plain Craft Launcher 2\obj\${{ matrix.configuration }}\Plain Craft Launcher 2.exe
+
+  release:
+    name: Auto Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine Version
+        id: ver
+        shell: bash
+        run: |
+          version=$(grep -oP 'AssemblyFileVersion\("\K[^"]+' "Plain Craft Launcher 2/My Project/AssemblyInfo.vb" || echo "0.0.0.0")
+          sha=$(git rev-parse --short HEAD)
+          run=$GITHUB_RUN_NUMBER
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}-${run}-${sha}-Restore" >> "$GITHUB_OUTPUT"
+
+      - name: Download Debug Artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "Debug *"
+          path: ./release/Debug
+          merge-multiple: true
+
+      - name: Download Release Artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "Release *"
+          path: ./release/Release
+          merge-multiple: true
+
+      - name: Rename Binaries
+        shell: bash
+        run: |
+          mkdir -p ./final
+          if [ -f "./release/Debug/Plain Craft Launcher 2.exe" ]; then
+            mv "./release/Debug/Plain Craft Launcher 2.exe" "./final/PCL_Debug_${{ steps.ver.outputs.version }}.exe"
+          fi
+          if [ -f "./release/Release/Plain Craft Launcher 2.exe" ]; then
+            mv "./release/Release/Plain Craft Launcher 2.exe" "./final/PCL_Release_${{ steps.ver.outputs.version }}.exe"
+          fi
+          ls -la ./final
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: "Restore ${{ steps.ver.outputs.tag }}"
+          body: |
+            Automatic release from restored commit `${{ github.sha }}`.
+            - Version: ${{ steps.ver.outputs.version }}
+            - Build: #${{ github.run_number }}
+          files: ./final/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
